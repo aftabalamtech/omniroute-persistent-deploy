@@ -13,7 +13,7 @@ COPY entrypoint.sh /usr/local/bin/omniroute-persistent-entrypoint
 RUN chmod 0755 /app/backup/*.sh /usr/local/bin/omniroute-persistent-entrypoint \
     && chown -R node:node /app/backup /app/data /app/runtime
 
-# Keep the persistent data location explicit and stable for Railway Volume mounts.
+# Keep the persistent data location explicit and stable for Render Persistent Disk mounts.
 ENV DATA_DIR=/app/data \
     PORT=20128 \
     HOSTNAME=0.0.0.0 \

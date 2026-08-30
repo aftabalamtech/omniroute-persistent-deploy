@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: omniroute-render
+    runtime: docker
+    branch: render
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    numInstances: 1
+    healthCheckPath: /api/monitoring/health
+    maxShutdownDelaySeconds: 30
+    disk:
+      name: omniroute-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /app/data
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: PORT
+        value: "20128"
+      - key: NODE_ENV
+        value: production
+      - key: OMNIROUTE_DB_FILENAME
+        value: storage.sqlite
+      - key: GITHUB_BACKUP_ENABLED
+        value: "true"
+      - key: GITHUB_BACKUP_REPO
+        value: aftabalamtech/omniroute-backup
+      - key: GITHUB_BACKUP_BRANCH
+        value: main
+      - key: GITHUB_BACKUP_FILE
+        value: latest.db.zst
+      - key: BACKUP_INTERVAL_MINUTES
+        value: "10"
+      - key: JWT_SECRET
+        sync: false
+      - key: API_KEY_SECRET
+        sync: false
+      - key: STORAGE_ENCRYPTION_KEY
+        sync: false
+      - key: STORAGE_ENCRYPTION_KEY_VERSION
+        value: v1
+      - key: INITIAL_PASSWORD
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
