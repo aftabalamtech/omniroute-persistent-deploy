@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DATA_DIR="${DATA_DIR:-/app/data}"
+DATA_DIR="${DATA_DIR:-/app/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
 log() { printf '[restore] %s\n' "$1"; }
 
-# The database path is the verified application-state marker. Never overwrite
-# an occupied path, even if it is not a regular file.
 if [[ -e "$DB_PATH" ]]; then
   log 'existing data detected; skipping restore'
   exit 0
@@ -28,28 +26,34 @@ snapshot="$tmpdir/$DB_FILE"
 
 log 'downloading latest backup'
 response="$tmpdir/github-response.json"
-http_code="$(curl -sS -o "$response" -w '%{http_code}' -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer $token" "$url")"
+http_code="$(curl -sS -o "$response" -w '%{http_code}' \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  -H "Authorization: Bearer $token" \
+  "$url")"
 if [[ "$http_code" == '404' ]]; then
   log 'no backup exists; starting with a fresh data directory'
   exit 10
 fi
-[[ "$http_code" == '200' ]] || { echo '[restore] GitHub download failed' >&2; exit 1; }
+[[ "$http_code" == '200' ]] || { log "GitHub download failed (HTTP $http_code)"; exit 1; }
 jq -er '.content' "$response" | tr -d '\n' | base64 -d >"$archive"
 
-log 'backup verified'
+log 'verifying backup archive'
 zstd --quiet --test "$archive"
 zstd --quiet --decompress --stdout "$archive" >"$snapshot"
 sqlite3 "$snapshot" 'PRAGMA quick_check;' | grep -qx 'ok'
 
-# Install only after all validation succeeds. A missing DB cannot be replaced by
-# this operation because the caller checked it and the destination is renamed
-# into place in the same filesystem.
 install_tmp="$DATA_DIR/.${DB_FILE}.restore.tmp"
 rm -f -- "$install_tmp"
 cp -- "$snapshot" "$install_tmp"
 sqlite3 "$install_tmp" 'PRAGMA quick_check;' | grep -qx 'ok'
 chown node:node "$install_tmp" 2>/dev/null || true
+
+# Refuse to replace a database if another process created it after the initial check.
 mv -n -- "$install_tmp" "$DB_PATH"
-[[ -f "$DB_PATH" ]] || { echo '[restore] destination appeared during restore; refusing to overwrite' >&2; exit 1; }
+if [[ ! -f "$DB_PATH" ]]; then
+  log 'restore destination appeared during restore; refusing to overwrite'
+  exit 1
+fi
 chown node:node "$DB_PATH" 2>/dev/null || true
 log 'restore completed'
