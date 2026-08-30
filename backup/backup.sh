@@ -19,7 +19,7 @@ run_once() {
   fi
 
   log 'database detected; creating backup'
-  local tmpdir snapshot archive
+  local tmpdir snapshot archive github_status
   tmpdir="$(mktemp -d /tmp/omniroute-backup.XXXXXX)"
   snapshot="$tmpdir/$DB_FILE"
   archive="$tmpdir/latest.db.zst"
@@ -40,11 +40,20 @@ run_once() {
   log 'compression verified'
 
   log 'uploading to GitHub'
-  GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" \
-    /app/backup/github-backup.sh "$archive"
+  if GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" \
+    /app/backup/github-backup.sh "$archive"; then
+    github_status=0
+  else
+    github_status=$?
+  fi
+
+  if (( github_status != 0 )); then
+    error_log "GitHub backup failed (exit $github_status); previous remote backup remains unchanged"
+    return "$github_status"
+  fi
+
   log 'GitHub upload successful'
   log 'remote backup verified'
-
   rm -rf "$tmpdir"
   trap - RETURN
   log 'backup completed successfully'
