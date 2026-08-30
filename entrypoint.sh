@@ -10,15 +10,24 @@ chown -R node:node "$DATA_DIR" 2>/dev/null || true
 
 if [[ "$BACKUP_ENABLED" == "true" && ! -e "$DB_PATH" ]]; then
   if [[ -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
-    set +e
-    /app/backup/restore.sh
-    restore_status=$?
-    set -e
-    if [[ "$restore_status" -eq 10 ]]; then
-      :
-    elif [[ "$restore_status" -ne 0 ]]; then
-      exit "$restore_status"
-    fi
+    restore_attempt=0
+    restore_backoff="${RESTORE_RETRY_SECONDS:-60}"
+    while :; do
+      set +e
+      /app/backup/restore.sh
+      restore_status=$?
+      set -e
+      if [[ "$restore_status" -eq 0 || "$restore_status" -eq 10 ]]; then
+        break
+      fi
+      restore_attempt=$((restore_attempt + 1))
+      printf '[restore] ERROR: validated backup unavailable; retry %s in %ss\n' "$restore_attempt" "$restore_backoff" >&2
+      sleep "$restore_backoff"
+      if (( restore_backoff < 3600 )); then
+        restore_backoff=$((restore_backoff * 2))
+        (( restore_backoff > 3600 )) && restore_backoff=3600
+      fi
+    done
   else
     printf '[restore] no backup credentials configured; starting with empty data directory\n'
   fi
