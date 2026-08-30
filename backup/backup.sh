@@ -12,16 +12,10 @@ FINGERPRINT_FILE="$RUNTIME_DIR/last-successful-fingerprint"
 log() { printf '[backup] %s\n' "$1"; }
 error_log() { printf '[backup] ERROR: %s\n' "$1" >&2; }
 
-# Content hashes avoid false-negative skips caused by coarse filesystem mtimes.
+# Hash only the live DB. SQLite Online Backup creates a consistent snapshot,
+# including committed WAL state, so WAL/SHM mtimes must not control backup decisions.
 fingerprint() {
-  local p
-  for p in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
-    if [[ -e "$p" ]]; then
-      sha256sum -- "$p"
-    else
-      printf 'missing  %s\n' "$p"
-    fi
-  done
+  sha256sum -- "$DB_PATH"
 }
 
 run_once() {
@@ -61,7 +55,6 @@ run_once() {
   GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" \
     /app/backup/github-backup.sh "$archive"
   log 'GitHub upload successful'
-  log 'remote backup verified'
 
   printf '%s' "$current" >"$FINGERPRINT_FILE"
   log 'backup completed successfully'
@@ -71,12 +64,17 @@ run_once() {
 
 mkdir -p "$RUNTIME_DIR"
 log "scheduler started (interval=${INTERVAL}m)"
+
 if [[ "${1:-}" == "--once" ]]; then
   exec 9>"$LOCK_FILE"
   flock -n 9 || { error_log 'another backup is already running'; exit 0; }
   run_once
   exit $?
 fi
+
+# First successful database detection triggers an immediate backup attempt.
+# Subsequent attempts occur every configured interval. A failed attempt does
+# not terminate the scheduler or OmniRoute; it retries on the next cycle.
 while :; do
   if exec 9>"$LOCK_FILE" && flock -n 9; then
     if run_once; then
@@ -87,8 +85,7 @@ while :; do
     fi
     flock -u 9
   fi
-  # Poll quickly only until the first database exists; thereafter use the
-  # requested ten-minute interval. This avoids delaying the first backup.
+
   if [[ -f "$DB_PATH" ]]; then
     sleep "${INTERVAL}m"
   else
