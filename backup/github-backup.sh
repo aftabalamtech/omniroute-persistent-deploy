@@ -32,10 +32,8 @@ json_headers=(
   -H 'Content-Type: application/json'
 )
 
-# An empty GitHub repository cannot accept Git Database API blob/tree/commit
-# operations yet. GitHub documents that this returns HTTP 409; initialize it
-# exactly once through the Contents API, then use the Git Database API for all
-# subsequent replacements so backup history does not accumulate on the branch.
+# Initialize an empty backup repository through the Contents API. Subsequent
+# uploads use the Git Database API so only latest.db.zst is retained.
 ref_endpoint="$api/repos/$repo/git/refs/heads/$branch"
 ref_response="$work/ref-initial.json"
 ref_existed=0
@@ -46,10 +44,10 @@ content_b64="$work/content.b64"
 base64 -w 0 "$archive" > "$content_b64"
 
 if [[ "$ref_code" == '404' ]]; then
-  log 'GitHub backup repository is empty; initializing it with latest.db.zst'
+  log "GitHub backup branch '$branch' does not exist; initializing it with latest.db.zst"
   init_payload="$work/init.json"
-  jq -n --rawfile content "$content_b64" --arg path "$file" \
-    '{message:"Initialize OmniRoute backup",content:($content|rtrimstr("\n")),branch:"main"}' > "$init_payload"
+  jq -n --rawfile content "$content_b64" --arg path "$file" --arg branch "$branch" \
+    '{message:"Initialize OmniRoute backup",content:($content|rtrimstr("\n")),branch:$branch}' > "$init_payload"
 
   init_response="$work/init-response.json"
   init_code="$(curl -sS -o "$init_response" -w '%{http_code}' \
@@ -98,7 +96,6 @@ else
     "$api/repos/$repo/git/commits")"
   [[ "$commit_code" == '201' ]] || { error_log "GitHub commit creation failed (HTTP $commit_code)"; exit 1; }
   commit_sha="$(jq -er '.sha' "$commit_response")"
-
 fi
 
 # Verify exact remote bytes independently of Git blob SHA calculations.
@@ -135,6 +132,6 @@ if (( ref_existed == 1 )); then
     -X PATCH "${json_headers[@]}" \
     --data-binary @"$update_payload" \
     "$ref_endpoint")"
-  [[ "$update_code" == '200' ]] || { error_log "GitHub branch update failed (HTTP $update_code); previous main remains unchanged"; exit 1; }
+  [[ "$update_code" == '200' ]] || { error_log "GitHub branch update failed (HTTP $update_code); previous backup remains referenced"; exit 1; }
 fi
 exit 0
