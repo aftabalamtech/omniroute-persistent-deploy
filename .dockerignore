@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+runtime
+*.sqlite
+*.sqlite-*
+*.db
+*.db.zst
+node_modules
+npm-debug.log*
+Dockerfile*
+README.md
