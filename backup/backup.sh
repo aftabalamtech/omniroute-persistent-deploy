@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DATA_DIR="${DATA_DIR:-/app/app/data}"
+DATA_DIR="${DATA_DIR:-/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
 RUNTIME_DIR="${RUNTIME_DIR:-/app/runtime}"
@@ -43,6 +43,7 @@ run_once() {
   GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" \
     /app/backup/github-backup.sh "$archive"
   log 'GitHub upload successful'
+  log 'remote backup verified'
 
   rm -rf "$tmpdir"
   trap - RETURN
