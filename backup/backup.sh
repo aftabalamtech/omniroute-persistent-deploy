@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DATA_DIR="${DATA_DIR:-/app/data}"
+DATA_DIR="${DATA_DIR:-/app/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
 RUNTIME_DIR="${RUNTIME_DIR:-/app/runtime}"
@@ -43,7 +43,6 @@ run_once() {
   GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" \
     /app/backup/github-backup.sh "$archive"
   log 'GitHub upload successful'
-  log 'remote backup verified'
 
   rm -rf "$tmpdir"
   trap - RETURN
@@ -60,10 +59,6 @@ if [[ "${1:-}" == "--once" ]]; then
   exit $?
 fi
 
-# Always create a backup when the database exists. This intentionally avoids
-# metadata/content change detection: in SQLite WAL mode the main DB file can
-# remain unchanged while committed data is written to the WAL. False-positive
-# backups are acceptable; a false-negative backup is not.
 while :; do
   if exec 9>"$LOCK_FILE" && flock -n 9; then
     if run_once; then
