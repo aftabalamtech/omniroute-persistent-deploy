@@ -2,13 +2,15 @@
 set -Eeuo pipefail
 
 DATA_DIR="${DATA_DIR:-/app/data}"
-mkdir -p "$DATA_DIR" /app/runtime
+DB_PATH="$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
+BACKUP_ENABLED="${GITHUB_BACKUP_ENABLED:-true}"
 
-# Railway volumes are commonly mounted root-owned on first attach. Repair only
-# the application directory, never the whole container filesystem.
+mkdir -p "$DATA_DIR" /app/runtime
+# Railway volumes may arrive root-owned on first attach. Repair only the data
+# directory; the official application remains under /app.
 chown -R node:node "$DATA_DIR" 2>/dev/null || true
 
-if [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" && ! -e "$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}" ]]; then
+if [[ "$BACKUP_ENABLED" == "true" && ! -e "$DB_PATH" ]]; then
   if [[ -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
     set +e
     /app/backup/restore.sh
@@ -26,11 +28,36 @@ else
   printf '[restore] existing data detected; skipping restore\n'
 fi
 
-if [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" && -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+backup_pid=''
+if [[ "$BACKUP_ENABLED" == "true" && -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+  # Start the scheduler before the application, but keep this shell as PID 1
+  # so signals and child lifecycle are supervised rather than orphaned by exec.
   /app/backup/backup.sh &
   backup_pid=$!
-  trap 'kill "$backup_pid" 2>/dev/null || true' EXIT INT TERM
+  printf '[backup] scheduler process started (interval=%sm)\n' "${BACKUP_INTERVAL_MINUTES:-10}"
+else
+  printf '[backup] scheduler disabled: credentials or GITHUB_BACKUP_ENABLED are not configured\n'
 fi
 
-# Preserve the official image startup command and permission checks.
-exec runuser -u node -- /app/check-permissions.sh "$@"
+app_pid=''
+shutdown() {
+  trap - TERM INT EXIT
+  if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
+    kill -TERM "$app_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$backup_pid" ]] && kill -0 "$backup_pid" 2>/dev/null; then
+    kill -TERM "$backup_pid" 2>/dev/null || true
+  fi
+}
+trap shutdown TERM INT EXIT
+
+# Preserve the official image entrypoint and command, but run them as the
+# upstream non-root node user. The shell remains PID 1 for supervision.
+runuser -u node -- /app/check-permissions.sh "$@" &
+app_pid=$!
+set +e
+wait "$app_pid"
+status=$?
+set -e
+shutdown
+exit "$status"

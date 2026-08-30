@@ -55,9 +55,11 @@ The restore operation uses a temporary file and a no-clobber rename. Existing `s
 
 ## Automatic backups
 
-A lightweight background shell loop checks every ten minutes. It compares SHA-256 content fingerprints of the database, WAL, and shared-memory files with the last successful backup fingerprint. If nothing changed, it logs `[backup] no changes; skipping`. If state changed, it invokes SQLite's `.backup` command, which uses SQLite's Online Backup API rather than copying a live database file, runs `PRAGMA quick_check`, compresses with fast zstd, verifies the compressed frame, and publishes the single latest artifact.
+A lightweight supervised shell loop starts alongside OmniRoute. It logs its startup, performs the first backup immediately when the database already exists, polls every 15 seconds until a newly created database appears, and then uses the configured ten-minute interval. It compares SHA-256 content fingerprints of the database, WAL, and shared-memory files with the last successful backup fingerprint. If nothing changed, it logs `[backup] no changes; skipping`. If state changed, it invokes SQLite's `.backup` command, which uses SQLite's Online Backup API rather than copying a live database file, runs `PRAGMA quick_check`, compresses with fast zstd, verifies the compressed frame, and publishes the single latest artifact.
 
-Publication is failure-safe. A new orphan commit is prepared and pushed with a forced branch ref update. If snapshotting, compression, verification, or publication fails, the prior `main` ref and its `latest.db.zst` remain available. Credentials are supplied in process memory and are never written into the archive or logs.
+The automatic-backup failure was identified during real execution of the production backup script: the zstd command placed `--` before `-o`, causing zstd to treat `-o` and the output path as input filenames and never create `latest.db.zst`. The command now places the output option before the positional-input terminator, and the successful harness run produced, verified, uploaded, and re-read a WAL-backed SQLite snapshot.
+
+Publication is failure-safe. A new orphan commit is prepared and pushed with a forced branch ref update. If snapshotting, compression, verification, or publication fails, the prior `main` ref and its `latest.db.zst` remain available. Credentials are supplied in process memory and are never written into the archive or logs. The scheduler reports failures as `[backup] ERROR: ...` and continues to the next retry without terminating OmniRoute.
 
 There is no zero-data-loss guarantee. With a ten-minute interval, data created after the most recent successful backup may be absent if the Railway project disappears before the next successful run.
 
