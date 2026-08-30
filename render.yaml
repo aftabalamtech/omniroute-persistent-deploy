@@ -14,8 +14,6 @@ services:
         value: /app/data
       - key: HOSTNAME
         value: 0.0.0.0
-      - key: PORT
-        value: "10000"
       - key: NODE_ENV
         value: production
       - key: OMNIROUTE_DB_FILENAME

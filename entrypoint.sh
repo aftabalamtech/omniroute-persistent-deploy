@@ -4,6 +4,13 @@ set -Eeuo pipefail
 DATA_DIR="${DATA_DIR:-/app/data}"
 DB_PATH="$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 BACKUP_ENABLED="${GITHUB_BACKUP_ENABLED:-true}"
+# Render supplies PORT at runtime; keep every OmniRoute HTTP selector aligned to it.
+PORT="${PORT:-10000}"
+HOSTNAME="${HOSTNAME:-0.0.0.0}"
+export PORT HOSTNAME
+export OMNIROUTE_PORT="$PORT"
+export DASHBOARD_PORT="$PORT"
+printf '[port] HTTP server target: %s:%s\n' "$HOSTNAME" "$PORT"
 
 mkdir -p "$DATA_DIR" /app/runtime
 chown -R node:node "$DATA_DIR" 2>/dev/null || true
