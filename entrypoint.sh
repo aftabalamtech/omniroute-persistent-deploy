@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DATA_DIR="${DATA_DIR:-/app/data}"
+DATA_DIR="${DATA_DIR:-/app/app/data}"
 DB_PATH="$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 BACKUP_ENABLED="${GITHUB_BACKUP_ENABLED:-true}"
 
 mkdir -p "$DATA_DIR" /app/runtime
-# Railway volumes may arrive root-owned on first attach. Repair only the data
-# directory; the official application remains under /app.
+# The Railway Volume must be mounted at the actual OmniRoute persistent path.
+# Repair only the data directory; never change ownership of the application tree.
 chown -R node:node "$DATA_DIR" 2>/dev/null || true
 
 if [[ "$BACKUP_ENABLED" == "true" && ! -e "$DB_PATH" ]]; then
@@ -30,8 +30,8 @@ fi
 
 backup_pid=''
 if [[ "$BACKUP_ENABLED" == "true" && -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
-  # Start the scheduler before the application, but keep this shell as PID 1
-  # so signals and child lifecycle are supervised rather than orphaned by exec.
+  # Keep this shell as PID 1 so the backup scheduler and official application
+  # have predictable lifecycles and both receive termination signals.
   /app/backup/backup.sh &
   backup_pid=$!
   printf '[backup] scheduler process started (interval=%sm)\n' "${BACKUP_INTERVAL_MINUTES:-10}"
@@ -57,8 +57,8 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
-# Preserve the official image entrypoint and command, but run them as the
-# upstream non-root node user. The shell remains PID 1 for supervision.
+# Preserve the official image startup command while running it as the upstream
+# non-root node user. The wrapper remains PID 1 for process supervision.
 runuser -u node -- /app/check-permissions.sh "$@" &
 app_pid=$!
 set +e
