@@ -13,16 +13,16 @@ COPY entrypoint.sh /usr/local/bin/omniroute-persistent-entrypoint
 RUN chmod 0755 /app/backup/*.sh /usr/local/bin/omniroute-persistent-entrypoint \
     && chown -R node:node /app/backup /app/data /app/runtime
 
-# Keep the persistent data location explicit and stable for Render Persistent Disk mounts.
+# Render web services receive public traffic on the PORT environment variable.
 ENV DATA_DIR=/app/data \
-    PORT=20128 \
+    PORT=10000 \
     HOSTNAME=0.0.0.0 \
     GITHUB_BACKUP_ENABLED=true \
     BACKUP_INTERVAL_MINUTES=5 \
     GITHUB_BACKUP_FILE=latest.db.zst \
     OMNIROUTE_DB_FILENAME=storage.sqlite
 
-EXPOSE 20128
+EXPOSE 10000
 
 ENTRYPOINT ["/usr/local/bin/omniroute-persistent-entrypoint"]
 CMD ["node", "dev/run-standalone.mjs"]

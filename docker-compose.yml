@@ -6,13 +6,13 @@ services:
       - .env
     environment:
       DATA_DIR: /app/data
-      PORT: ${PORT:-20128}
+      PORT: ${PORT:-10000}
     ports:
-      - "${PORT:-20128}:20128"
+      - "${PORT:-10000}:${PORT:-10000}"
     volumes:
       - omniroute-data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:20128/api/monitoring/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:${PORT:-10000}/api/monitoring/health"]
       interval: 30s
       timeout: 5s
       retries: 3
