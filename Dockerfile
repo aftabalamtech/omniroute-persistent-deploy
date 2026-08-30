@@ -25,4 +25,6 @@ ENV DATA_DIR=/app/data \
 EXPOSE 10000
 
 ENTRYPOINT ["/usr/local/bin/omniroute-persistent-entrypoint"]
-CMD ["node", "dev/run-standalone.mjs"]
+# Render must start the main Next HTTP server directly on the Render-provided PORT.
+# The internal WebSocket daemons are optional and must not be the public process.
+CMD ["node", "server.js"]

@@ -34,7 +34,7 @@ Port:
 10000
 ```
 
-The official OmniRoute image is built with a 20128 default, but this Render wrapper deliberately overrides that default with Render's `PORT=10000` at runtime; OmniRoute receives the environment unchanged and binds the public server to `0.0.0.0:$PORT`. The official OmniRoute environment reference defines `DATA_DIR` as the root for the SQLite database, backups, and data files. `STORAGE_ENCRYPTION_KEY` is the key used for encrypted SQLite storage and must be preserved when an existing encrypted database is reused. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/ENVIRONMENT.md
+The official OmniRoute image is built with a 20128 default, but this Render wrapper deliberately overrides that default with Render's `PORT=10000` at runtime. The Render image starts the upstream Next standalone HTTP server directly with `node server.js`, while the entrypoint passes `PORT`, `OMNIROUTE_PORT`, `DASHBOARD_PORT`, `API_PORT`, and `OMNIROUTE_HOSTNAME` consistently so the main server binds to `0.0.0.0:$PORT`; the internal WebSocket daemons are not used as the public process. The official OmniRoute environment reference defines `DATA_DIR` as the root for the SQLite database, backups, and data files. `STORAGE_ENCRYPTION_KEY` is the key used for encrypted SQLite storage and must be preserved when an existing encrypted database is reused. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/ENVIRONMENT.md
 
 ## Render Free filesystem
 
