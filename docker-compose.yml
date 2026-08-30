@@ -5,12 +5,12 @@ services:
     env_file:
       - .env
     environment:
-      DATA_DIR: /app/data
+      DATA_DIR: /app/app/data
       PORT: ${PORT:-20128}
     ports:
       - "${PORT:-20128}:20128"
     volumes:
-      - omniroute-data:/app/data
+      - omniroute-data:/app/app/data
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:20128/api/monitoring/health"]
       interval: 30s
