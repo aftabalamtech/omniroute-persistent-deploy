@@ -6,10 +6,13 @@ DB_PATH="$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 BACKUP_ENABLED="${GITHUB_BACKUP_ENABLED:-true}"
 # Render supplies PORT at runtime; keep every OmniRoute HTTP selector aligned to it.
 PORT="${PORT:-10000}"
-HOSTNAME="${HOSTNAME:-0.0.0.0}"
+# Docker/Render may inject HOSTNAME as the container name; never use that for the public bind.
+HOSTNAME="0.0.0.0"
 export PORT HOSTNAME
 export OMNIROUTE_PORT="$PORT"
 export DASHBOARD_PORT="$PORT"
+export API_PORT="$PORT"
+export OMNIROUTE_HOSTNAME="$HOSTNAME"
 printf '[port] HTTP server target: %s:%s\n' "$HOSTNAME" "$PORT"
 
 mkdir -p "$DATA_DIR" /app/runtime
@@ -60,7 +63,14 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
-runuser -u node -- /app/check-permissions.sh "$@" &
+runuser -u node -- env \
+  PORT="$PORT" \
+  OMNIROUTE_PORT="$PORT" \
+  DASHBOARD_PORT="$PORT" \
+  API_PORT="$PORT" \
+  HOSTNAME="$HOSTNAME" \
+  OMNIROUTE_HOSTNAME="$HOSTNAME" \
+  /app/check-permissions.sh "$@" &
 app_pid=$!
 set +e
 wait "$app_pid"
