@@ -4,17 +4,17 @@ Lightweight Docker deployment for the official OmniRoute release on Railway with
 
 ## Goals
 
-- Run the official OmniRoute Docker release; do not fork or vendor OmniRoute source.
+- Run the official OmniRoute release; do not fork or vendor OmniRoute source.
 - Keep persistent application data on a Railway Volume mounted at `/app/data`.
 - Keep the deployment lightweight: no PostgreSQL, Redis is optional, no panel, no file manager, and no heavy backup service.
 - Maintain one latest compressed backup in a private GitHub repository.
 - Automatically restore the latest backup when a new deployment has no existing persistent data.
-- Never overwrite an existing data directory automatically.
+- Never overwrite a valid existing data directory automatically.
 - Preserve OmniRoute's existing encryption key when reusing an encrypted database.
 
 ## Current OmniRoute Configuration
 
-The deployment currently pins the OmniRoute Docker image explicitly in `Dockerfile` rather than using the floating `latest` tag. Verify the pinned tag against the official OmniRoute release before upgrading.
+The deployment currently pins the OmniRoute Docker image explicitly in `Dockerfile` to the stable `3.8.50` release rather than using a floating `latest` tag. Verify the official release status and migration notes before upgrading.
 
 Persistent path:
 
@@ -92,7 +92,7 @@ Only configure Redis if you actually have a Redis service available.
 Backup repository:
 
 ```text
- aftabalamtech/omniroute-backup
+aftabalamtech/omniroute-backup
 ```
 
 Keep this repository **private**.
@@ -116,7 +116,7 @@ For testing, you can temporarily use:
 BACKUP_INTERVAL_MINUTES=2
 ```
 
-The first backup is attempted as soon as the database exists; the configured interval controls subsequent attempts.
+The scheduler starts **only after OmniRoute passes the local HTTP health check**. It then performs the first backup immediately and subsequent checks at the configured interval.
 
 ## Backup Flow
 
@@ -125,7 +125,7 @@ The first backup is attempted as soon as the database exists; the configured int
         ↓
 SQLite Online Backup snapshot
         ↓
-SQLite integrity check
+SQLite integrity + schema check
         ↓
 zstd compression + integrity test
         ↓
@@ -145,17 +145,17 @@ If a backup fails, OmniRoute must continue running and the previous remote backu
 On startup:
 
 ```text
-/app/data contains valid existing data
+/app/data contains a valid SQLite database
         ↓
-restore skipped
+preserve it and let OmniRoute migrate it
 
 OR
 
-/app/data is genuinely empty
+/app/data is empty or the existing SQLite file fails integrity validation
         ↓
 download latest.db.zst from GitHub
         ↓
-verify archive
+verify archive size + zstd integrity
         ↓
 decompress to temporary location
         ↓
@@ -163,10 +163,12 @@ SQLite integrity check
         ↓
 install atomically
         ↓
-start OmniRoute
+prepare required base schema
+        ↓
+start OmniRoute migrations/bootstrap
 ```
 
-Existing data must never be overwritten automatically.
+A valid existing database is never overwritten automatically.
 
 If no GitHub backup exists, a genuinely first-time installation may start with a fresh data directory.
 
@@ -199,14 +201,14 @@ Successful external backup
       ↓
 Remote backup verification
       ↓
+Research official release/tag + migration notes
+      ↓
 Change pinned OmniRoute version
       ↓
 Deploy and test
 ```
 
 If the backup cannot be verified, do not treat the release update as safe.
-
-Always research the official OmniRoute release, Docker image/tag, data layout, startup command, and migration notes before changing the pinned version.
 
 ## What This Project Does NOT Use
 
@@ -241,13 +243,14 @@ Before production use, verify:
 - [ ] Railway Volume is mounted at `/app/data`.
 - [ ] `storage.sqlite` is created at `/app/data/storage.sqlite`.
 - [ ] Existing encrypted database starts with the exact previous `STORAGE_ENCRYPTION_KEY`.
+- [ ] Application health endpoint becomes ready before backup scheduler starts.
 - [ ] First backup succeeds.
 - [ ] `latest.db.zst` exists in the private backup repository.
 - [ ] Remote SHA-256 verification succeeds.
 - [ ] A failed upload does not report success.
 - [ ] A failed upload does not destroy the previous backup.
-- [ ] Empty new Volume restores automatically.
-- [ ] Existing data skips restore and is not overwritten.
+- [ ] Empty new Volume restores automatically when a valid backup exists.
+- [ ] Existing valid data skips restore and is not overwritten.
 - [ ] Corrupt backup is rejected.
 - [ ] OmniRoute continues running when a scheduled backup fails.
 - [ ] A restart preserves the Railway Volume data.
@@ -259,20 +262,12 @@ Dockerfile
 railway.json
 docker-compose.yml
 entrypoint.sh
-backup/
-  backup.sh
-  github-backup.sh
-  restore.sh
+backup/001_initial_schema.sql
+backup/backup.sh
+backup/github-backup.sh
+backup/restore.sh
 .env.example
 .gitignore
 .dockerignore
 README.md
 ```
-
-## Official References
-
-- OmniRoute environment reference: https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/ENVIRONMENT.md
-- OmniRoute encryption/bootstrap behavior: https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/bin/omniroute.mjs
-- OmniRoute environment example: https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/.env.example
-- Railway Volumes documentation: https://docs.railway.com/reference/volumes
-- GitHub Contents API: https://docs.github.com/en/rest/repos/contents
