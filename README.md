@@ -55,7 +55,7 @@ The restore operation uses a temporary file and a no-clobber rename. Existing `s
 
 ## Automatic backups
 
-A lightweight background shell loop checks every ten minutes. It compares the database, WAL, and shared-memory file metadata with the last successful backup fingerprint. If nothing changed, it logs `[backup] no changes; skipping`. If state changed, it invokes SQLite's `.backup` command, which uses SQLite's Online Backup API rather than copying a live database file, runs `PRAGMA quick_check`, compresses with fast zstd, verifies the compressed frame, and publishes the single latest artifact.
+A lightweight background shell loop checks every ten minutes. It compares SHA-256 content fingerprints of the database, WAL, and shared-memory files with the last successful backup fingerprint. If nothing changed, it logs `[backup] no changes; skipping`. If state changed, it invokes SQLite's `.backup` command, which uses SQLite's Online Backup API rather than copying a live database file, runs `PRAGMA quick_check`, compresses with fast zstd, verifies the compressed frame, and publishes the single latest artifact.
 
 Publication is failure-safe. A new orphan commit is prepared and pushed with a forced branch ref update. If snapshotting, compression, verification, or publication fails, the prior `main` ref and its `latest.db.zst` remain available. Credentials are supplied in process memory and are never written into the archive or logs.
 

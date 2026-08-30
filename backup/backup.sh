@@ -11,17 +11,19 @@ FINGERPRINT_FILE="$RUNTIME_DIR/last-successful-fingerprint"
 
 log() { printf '[backup] %s\n' "$1"; }
 
+# Content hashes are deliberately used instead of timestamps. A timestamp-only
+# check can miss a write on filesystems with coarse or unusual mtime behavior.
+# Hashing the database, WAL, and SHM files can produce false positives during a
+# concurrent write, but cannot safely justify skipping a changed byte sequence.
 fingerprint() {
-  local p value
-  value=""
+  local p
   for p in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
     if [[ -e "$p" ]]; then
-      value+="$(stat -c '%n:%s:%Y' "$p")|"
+      sha256sum -- "$p"
     else
-      value+="$p:missing|"
+      printf 'missing  %s\n' "$p"
     fi
   done
-  printf '%s' "$value"
 }
 
 run_once() {
