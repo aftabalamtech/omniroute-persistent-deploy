@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DATA_DIR="${DATA_DIR:-/app/app/data}"
+DATA_DIR="${DATA_DIR:-/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
 log() { printf '[restore] %s\n' "$1"; }
@@ -48,8 +48,6 @@ rm -f -- "$install_tmp"
 cp -- "$snapshot" "$install_tmp"
 sqlite3 "$install_tmp" 'PRAGMA quick_check;' | grep -qx 'ok'
 chown node:node "$install_tmp" 2>/dev/null || true
-
-# Refuse to replace a database if another process created it after the initial check.
 mv -n -- "$install_tmp" "$DB_PATH"
 if [[ ! -f "$DB_PATH" ]]; then
   log 'restore destination appeared during restore; refusing to overwrite'
