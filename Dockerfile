@@ -5,16 +5,16 @@ USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates curl jq sqlite3 util-linux zstd \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /app/backup /app/app/data /app/runtime
+    && mkdir -p /app/backup /app/data /app/runtime
 
 COPY backup/ /app/backup/
 COPY entrypoint.sh /usr/local/bin/omniroute-persistent-entrypoint
 
 RUN chmod 0755 /app/backup/*.sh /usr/local/bin/omniroute-persistent-entrypoint \
-    && chown -R node:node /app/backup /app/app/data /app/runtime
+    && chown -R node:node /app/backup /app/data /app/runtime
 
-# OmniRoute v3.8.50 uses /app/app/data for persistent state in this deployment layout.
-ENV DATA_DIR=/app/app/data \
+# Keep the persistent data location explicit and stable for Railway Volume mounts.
+ENV DATA_DIR=/app/data \
     PORT=20128 \
     HOSTNAME=0.0.0.0 \
     GITHUB_BACKUP_ENABLED=true \
