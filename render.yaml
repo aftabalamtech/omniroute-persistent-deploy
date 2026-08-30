@@ -5,14 +5,10 @@ services:
     branch: render
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     numInstances: 1
     healthCheckPath: /api/monitoring/health
     maxShutdownDelaySeconds: 30
-    disk:
-      name: omniroute-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: DATA_DIR
         value: /app/data
@@ -33,7 +29,9 @@ services:
       - key: GITHUB_BACKUP_FILE
         value: latest.db.zst
       - key: BACKUP_INTERVAL_MINUTES
-        value: "10"
+        value: "5"
+      - key: MAX_BACKUP_BYTES
+        value: "94371840"
       - key: JWT_SECRET
         sync: false
       - key: API_KEY_SECRET

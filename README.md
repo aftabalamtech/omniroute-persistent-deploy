@@ -1,11 +1,11 @@
 # OmniRoute on Render with external disaster recovery
 
-Lightweight Docker deployment for the official OmniRoute release on Render with a Persistent Disk mounted at `/app/data`, a private GitHub disaster-recovery backup, and automatic restore on a genuinely empty data volume. This branch is Render-only; the Railway implementation remains on `main` and is not modified here.
+Lightweight Docker deployment for the official OmniRoute release on a **Render Free Web Service**, with ephemeral `/app/data`, a private GitHub disaster-recovery backup, and automatic restore on every genuinely empty startup. This branch is Render-only; the Railway implementation remains on `main` and is not modified here.
 
 ## Goals
 
 - Run the official OmniRoute Docker release; do not fork or vendor OmniRoute source.
-- Keep persistent application data on a Render Persistent Disk mounted at `/app/data`.
+- Use `/app/data` as temporary working storage on Render Free; GitHub is the external persistence layer.
 - Keep the deployment lightweight: no PostgreSQL, Redis is optional, no panel, no file manager, and no heavy backup service.
 - Maintain one latest compressed backup in a private GitHub repository.
 - Automatically restore the latest backup when a new deployment has no existing persistent data.
@@ -36,17 +36,11 @@ Port:
 
 The official OmniRoute environment reference defines `DATA_DIR` as the root for the SQLite database, backups, and data files. `STORAGE_ENCRYPTION_KEY` is the key used for encrypted SQLite storage and must be preserved when an existing encrypted database is reused. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/docs/reference/ENVIRONMENT.md
 
-## Render Persistent Disk
+## Render Free filesystem
 
-Create a Render Persistent Disk and mount it at:
+This branch deliberately uses the **Free** Web Service plan and defines no Persistent Disk. Render documents that Free web services have an ephemeral filesystem: local SQLite data under `/app/data` can be lost on restart, redeploy, or spin-down after 15 minutes without inbound traffic. Therefore `/app/data` is temporary working storage only, and the private GitHub repository is the external disaster-recovery persistence layer. A free service can take about a minute to spin back up after idle time and should not be treated as a production durability guarantee.
 
-```text
-/app/data
-```
-
-Do **not** mount the disk over the application directory; mount it only at `/app/data`.
-
-The Persistent Disk is the primary live source of persistent data. Render's filesystem is otherwise ephemeral, so GitHub is an external disaster-recovery copy, not a replacement for the live disk. Render disks are available to a single instance and prevent zero-downtime instance swapping.
+The Render Blueprint sets `plan: free`, uses one web-service instance, and mounts no disk. Do not add a paid disk to this branch if the goal is Render Free.
 
 ## Required OmniRoute Environment Variables
 
@@ -83,7 +77,7 @@ If a Render Redis service is provisioned and you want OmniRoute's rate limiter t
 REDIS_URL=${{Redis.REDIS_URL}}
 ```
 
-Redis does not replace the Render Persistent Disk or GitHub backup. The official environment example treats Redis rate limiting as opt-in; without it, the built-in in-memory rate limiter can be used. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/.env.example
+Redis does not replace GitHub backup and is not required for this Free deployment. The official environment example treats Redis rate limiting as opt-in; without it, the built-in in-memory rate limiter can be used. citehttps://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/.env.example
 
 Only configure Redis if you actually have a Redis service available.
 
@@ -106,7 +100,7 @@ GITHUB_BACKUP_BRANCH=main
 GITHUB_BACKUP_FILE=latest.db.zst
 GITHUB_TOKEN=<GitHub-token-with-required-private-repo-access>
 
-BACKUP_INTERVAL_MINUTES=10
+BACKUP_INTERVAL_MINUTES=5
 OMNIROUTE_DB_FILENAME=storage.sqlite
 ```
 
@@ -136,7 +130,7 @@ latest.db.zst
 remote download + zstd test + SHA-256 comparison
 ```
 
-A backup is considered successful **only after the remote artifact has been downloaded and its SHA-256 matches the local archive**.
+A backup is considered successful **only after the remote artifact has been downloaded and its SHA-256 matches the local archive**. The publisher rejects archives larger than 90 MiB by default, below GitHub's documented single-file hard limit, because a large SQLite database may require a different storage design.
 
 If a backup fails, OmniRoute must continue running and the previous remote backup must remain usable.
 
@@ -229,28 +223,29 @@ Heavy backup service      NO
 
 ## Important Limitation
 
-No external backup design can honestly guarantee zero data loss. The recovery point depends on successful backup completion and the configured interval. With a 10-minute interval, a recent change may not yet exist in the external GitHub backup if the service fails before that backup succeeds.
+No external backup design can honestly guarantee zero data loss. The recovery point depends on successful backup completion and the configured interval. With the default five-minute interval, a recent change may not yet exist in the external GitHub backup if the service spins down or fails before that backup succeeds.
 
-The Render Persistent Disk remains the primary live data store. Without it, Render's local filesystem is ephemeral and recovery depends on the last verified GitHub backup.
+On Render Free, `/app/data` is not durable. Recovery after a filesystem reset depends on the last successfully verified GitHub backup; the default five-minute interval is the intended recovery-point target, not a guarantee.
 
 ## Testing Checklist
 
 Before production use, verify:
 
 - [ ] Official pinned OmniRoute image starts successfully.
-- [ ] Render Persistent Disk is mounted at `/app/data` and not over `/app`.
+- [ ] The service is on Render Free and no Persistent Disk is configured.
 - [ ] `storage.sqlite` is created at `/app/data/storage.sqlite`.
 - [ ] Existing encrypted database starts with the exact previous `STORAGE_ENCRYPTION_KEY`.
 - [ ] First backup succeeds.
 - [ ] `latest.db.zst` exists in the private backup repository.
 - [ ] Remote SHA-256 verification succeeds.
+- [ ] Archive-size guard rejects files above the documented GitHub-safe limit.
 - [ ] A failed upload does not report success.
 - [ ] A failed upload does not destroy the previous backup.
-- [ ] Empty new Render Persistent Disk restores automatically.
+- [ ] Empty `/app/data` on a fresh/spun-up Free instance restores automatically.
 - [ ] Existing data skips restore and is not overwritten.
 - [ ] Corrupt backup is rejected.
 - [ ] OmniRoute continues running when a scheduled backup fails.
-- [ ] A restart/redeploy preserves the Render Persistent Disk data.
+- [ ] A restart/redeploy restores from GitHub when the ephemeral filesystem is empty.
 
 ## Files
 
@@ -275,6 +270,6 @@ README.md
 - OmniRoute encryption/bootstrap behavior: https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/bin/omniroute.mjs
 - OmniRoute environment example: https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.50/.env.example
 - Render Blueprint specification: https://render.com/docs/blueprint-spec
-- Render Persistent Disks: https://render.com/docs/disks
+- Render Free services: https://render.com/docs/free
 - Render Docker services: https://render.com/docs/docker
 - GitHub Contents API: https://docs.github.com/en/rest/repos/contents

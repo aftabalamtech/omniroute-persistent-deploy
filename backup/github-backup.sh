@@ -15,6 +15,13 @@ error_log() { printf '[backup] ERROR: %s\n' "$1" >&2; }
 [[ "$file" == 'latest.db.zst' ]] || { error_log 'only latest.db.zst is supported'; exit 2; }
 [[ "$branch" =~ ^[A-Za-z0-9._/-]+$ ]] || { error_log 'invalid GitHub branch name'; exit 2; }
 [[ -s "$archive" ]] || { error_log 'archive is empty'; exit 2; }
+archive_bytes="$(stat -c '%s' -- "$archive")"
+max_backup_bytes="${MAX_BACKUP_BYTES:-94371840}"
+[[ "$max_backup_bytes" =~ ^[0-9]+$ ]] || { error_log 'MAX_BACKUP_BYTES must be an integer'; exit 2; }
+if (( archive_bytes > max_backup_bytes )); then
+  error_log "backup archive is too large (${archive_bytes} bytes; limit ${max_backup_bytes})"
+  exit 2
+fi
 
 work="$(mktemp -d /tmp/omniroute-publish.XXXXXX)"
 cleanup() { rm -rf "$work"; }
