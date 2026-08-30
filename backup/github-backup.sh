@@ -13,89 +13,101 @@ error_log() { printf '[backup] ERROR: %s\n' "$1" >&2; }
 
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { error_log 'invalid GitHub repository name'; exit 2; }
 [[ "$file" == 'latest.db.zst' ]] || { error_log 'only latest.db.zst is supported'; exit 2; }
+[[ "$branch" =~ ^[A-Za-z0-9._/-]+$ ]] || { error_log 'invalid GitHub branch name'; exit 2; }
 [[ -s "$archive" ]] || { error_log 'archive is empty'; exit 2; }
 
 work="$(mktemp -d /tmp/omniroute-publish.XXXXXX)"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
-# Use the GitHub Contents API directly. This avoids git credentials/username
-# prompts inside Railway and keeps the backup repository limited to one file.
-encoded_file="$file"
-endpoint="$api/repos/$repo/contents/$encoded_file"
-response="$work/response.json"
+headers=(
+  -H 'Accept: application/vnd.github+json'
+  -H 'X-GitHub-Api-Version: 2022-11-28'
+  -H "Authorization: Bearer $token"
+  -H 'Content-Type: application/json'
+)
 
-# GitHub Contents API accepts base64 content and an optional existing file SHA.
-# First discover whether latest.db.zst already exists. A 404 is expected on the
-# first backup and is treated as an initial upload.
-existing_sha=""
-http_code="$(curl -sS -o "$response" -w '%{http_code}' \
-  -H 'Accept: application/vnd.github+json' \
-  -H 'X-GitHub-Api-Version: 2022-11-28' \
-  -H "Authorization: Bearer $token" \
-  "$endpoint?ref=$branch")"
-
-case "$http_code" in
-  200)
-    existing_sha="$(jq -er '.sha' "$response")"
-    ;;
-  404)
-    existing_sha=""
-    ;;
-  *)
-    error_log "GitHub lookup failed (HTTP $http_code)"
-    exit 1
-    ;;
-esac
-
+# Build the GitHub blob without passing the base64 payload through a shell
+# argument. This avoids ARG_MAX failures for larger compressed databases.
 content_b64="$work/content.b64"
 base64 -w 0 "$archive" > "$content_b64"
+blob_payload="$work/blob.json"
+jq -n --rawfile content "$content_b64" \
+  '{content:($content|rtrimstr("\n")),encoding:"base64"}' > "$blob_payload"
 
-payload="$work/payload.json"
-if [[ -n "$existing_sha" ]]; then
-  jq -n \
-    --arg message 'Update latest OmniRoute backup' \
-    --arg content "$(cat "$content_b64")" \
-    --arg branch "$branch" \
-    --arg sha "$existing_sha" \
-    '{message:$message,content:$content,branch:$branch,sha:$sha}' > "$payload"
+log 'creating GitHub backup blob'
+blob_response="$work/blob-response.json"
+blob_code="$(curl -sS -o "$blob_response" -w '%{http_code}' \
+  -X POST "${headers[@]}" \
+  --data-binary @"$blob_payload" \
+  "$api/repos/$repo/git/blobs")"
+[[ "$blob_code" == '201' ]] || { error_log "GitHub blob creation failed (HTTP $blob_code)"; exit 1; }
+blob_sha="$(jq -er '.sha' "$blob_response")"
+
+# Create a tree containing only latest.db.zst. We intentionally create an
+# orphan commit so the visible backup branch does not accumulate old binary
+# backup commits. GitHub may retain unreachable objects internally until GC.
+tree_payload="$work/tree.json"
+jq -n --arg path "$file" --arg sha "$blob_sha" \
+  '{tree:[{path:$path,mode:"100644",type:"blob",sha:$sha}]}' > "$tree_payload"
+
+tree_response="$work/tree-response.json"
+tree_code="$(curl -sS -o "$tree_response" -w '%{http_code}' \
+  -X POST "${headers[@]}" \
+  --data-binary @"$tree_payload" \
+  "$api/repos/$repo/git/trees")"
+[[ "$tree_code" == '201' ]] || { error_log "GitHub tree creation failed (HTTP $tree_code)"; exit 1; }
+tree_sha="$(jq -er '.sha' "$tree_response")"
+
+commit_payload="$work/commit.json"
+jq -n --arg message 'Update latest OmniRoute backup' --arg tree "$tree_sha" \
+  '{message:$message,tree:$tree}' > "$commit_payload"
+
+commit_response="$work/commit-response.json"
+commit_code="$(curl -sS -o "$commit_response" -w '%{http_code}' \
+  -X POST "${headers[@]}" \
+  --data-binary @"$commit_payload" \
+  "$api/repos/$repo/git/commits")"
+[[ "$commit_code" == '201' ]] || { error_log "GitHub commit creation failed (HTTP $commit_code)"; exit 1; }
+commit_sha="$(jq -er '.sha' "$commit_response")"
+
+ref_endpoint="$api/repos/$repo/git/refs/heads/$branch"
+ref_response="$work/ref-response.json"
+ref_code="$(curl -sS -o "$ref_response" -w '%{http_code}' \
+  "${headers[@]:0:2}" "${headers[2]}" \
+  "$ref_endpoint")"
+
+if [[ "$ref_code" == '200' ]]; then
+  update_payload="$work/ref-update.json"
+  jq -n --arg sha "$commit_sha" '{sha:$sha,force:true}' > "$update_payload"
+  update_response="$work/ref-update-response.json"
+  update_code="$(curl -sS -o "$update_response" -w '%{http_code}' \
+    -X PATCH "${headers[@]}" \
+    --data-binary @"$update_payload" \
+    "$ref_endpoint")"
+  [[ "$update_code" == '200' ]] || { error_log "GitHub branch update failed (HTTP $update_code)"; exit 1; }
+elif [[ "$ref_code" == '404' ]]; then
+  create_payload="$work/ref-create.json"
+  jq -n --arg ref "refs/heads/$branch" --arg sha "$commit_sha" '{ref:$ref,sha:$sha}' > "$create_payload"
+  create_response="$work/ref-create-response.json"
+  create_code="$(curl -sS -o "$create_response" -w '%{http_code}' \
+    -X POST "${headers[@]}" \
+    --data-binary @"$create_payload" \
+    "$api/repos/$repo/git/refs")"
+  [[ "$create_code" == '201' ]] || { error_log "GitHub branch creation failed (HTTP $create_code)"; exit 1; }
 else
-  jq -n \
-    --arg message 'Create latest OmniRoute backup' \
-    --arg content "$(cat "$content_b64")" \
-    --arg branch "$branch" \
-    '{message:$message,content:$content,branch:$branch}' > "$payload"
+  error_log "GitHub branch lookup failed (HTTP $ref_code)"
+  exit 1
 fi
 
-log 'publishing backup to GitHub via Contents API'
-put_response="$work/put-response.json"
-put_code="$(curl -sS -o "$put_response" -w '%{http_code}' \
-  -X PUT \
-  -H 'Accept: application/vnd.github+json' \
-  -H 'X-GitHub-Api-Version: 2022-11-28' \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $token" \
-  --data-binary @"$payload" \
-  "$endpoint")"
-
-case "$put_code" in
-  200|201)
-    ;;
-  *)
-    error_log "GitHub upload failed (HTTP $put_code)"
-    exit 1
-    ;;
-esac
-
-# Verify the exact bytes now stored remotely. This is intentionally independent
-# of Git blob SHA calculations.
+# Verify exact remote bytes, independent of Git blob SHA calculations.
 local_sha256="$(sha256sum "$archive" | awk '{print $1}')"
 remote="$work/remote-latest.db.zst"
 remote_code="$(curl -sS -L -o "$remote" -w '%{http_code}' \
   -H 'Accept: application/vnd.github.raw' \
   -H 'X-GitHub-Api-Version: 2022-11-28' \
   -H "Authorization: Bearer $token" \
-  "$endpoint?ref=$branch")"
+  "$api/repos/$repo/contents/$file?ref=$branch")"
 [[ "$remote_code" == '200' ]] || { error_log "GitHub remote verification download failed (HTTP $remote_code)"; exit 1; }
 [[ -s "$remote" ]] || { error_log 'remote artifact is empty'; exit 1; }
 zstd --quiet --test "$remote" || { error_log 'remote zstd verification failed'; exit 1; }
