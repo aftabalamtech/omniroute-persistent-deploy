@@ -1,5 +1,5 @@
--- OmniRoute v3.8.51 base schema.
--- Sourced from the official 001_initial_schema.sql.
+-- OmniRoute v3.8.50 base schema.
+-- Sourced from the official v3.8.50 001_initial_schema.sql.
 -- Applied only as a pre-bootstrap compatibility step when a restored/legacy
 -- database is missing the base tables required by bootstrap-env.mjs.
 
