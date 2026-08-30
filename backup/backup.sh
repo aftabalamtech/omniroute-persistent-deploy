@@ -19,6 +19,11 @@ run_once() {
   [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" ]] || return 0
   if [[ ! -f "$DB_PATH" ]]; then log 'waiting for database'; return 0; fi
   log 'database detected'
+  if ! /app/backup/validate-db.sh "$DB_PATH"; then
+    error_log 'database schema validation failed; backup skipped'
+    return 0
+  fi
+  log 'database schema validation passed'
   local current previous tmpdir snapshot archive
   current="$(fingerprint)"
   previous=''
@@ -34,7 +39,8 @@ run_once() {
   sqlite3 "$DB_PATH" ".timeout 5000" ".backup '$snapshot'"
   log 'SQLite snapshot created'
   log 'validating SQLite snapshot'
-  sqlite3 "$snapshot" 'PRAGMA quick_check;' | grep -qx 'ok' || { error_log 'SQLite integrity check failed'; return 1; }
+  sqlite3 "$snapshot" 'PRAGMA integrity_check;' | grep -qx 'ok' || { error_log 'SQLite integrity check failed'; return 1; }
+  /app/backup/validate-db.sh "$snapshot" || { error_log 'snapshot schema validation failed'; return 1; }
   log 'compressing with zstd'
   zstd --quiet --fast=3 --no-progress -o "$archive" -- "$snapshot"
   zstd --quiet --test "$archive"
