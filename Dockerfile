@@ -1,4 +1,4 @@
-FROM diegosouzapw/omniroute:3.8.51
+FROM diegosouzapw/omniroute:3.8.50
 
 USER root
 
