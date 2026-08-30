@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Railway production / main branch: keep the canonical persistent path stable.
 DATA_DIR="${DATA_DIR:-/app/data}"
+# Be defensive if a platform variable is accidentally supplied as `app/data`.
+if [[ "$DATA_DIR" != /* ]]; then DATA_DIR="/$DATA_DIR"; fi
 DB_PATH="$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 BACKUP_ENABLED="${GITHUB_BACKUP_ENABLED:-true}"
 RUNTIME_DIR="${RUNTIME_DIR:-/app/runtime}"
@@ -50,7 +53,7 @@ if (( restore_needed )); then
       printf '[restore] ERROR: validated backup unavailable; retry %s in %ss\n' "$restore_attempt" "$restore_backoff" >&2
       sleep "$restore_backoff"
       if (( restore_backoff < 3600 )); then
-        restore_backoff=$((restore_backoff * 2))
+        restore_backoff=$(( restore_backoff * 2 ))
         (( restore_backoff > 3600 )) && restore_backoff=3600
       fi
     done
@@ -60,14 +63,14 @@ if (( restore_needed )); then
   fi
 fi
 
-# bootstrap-env.mjs runs before OmniRoute's migration runner and directly
-# queries provider_connections. Therefore the official v3.8.51 base schema must
+# OmniRoute 3.8.50 runs bootstrap-env before its migration runner and directly
+# queries provider_connections. The official 3.8.50 initial schema must therefore
 # exist before the Node process starts. CREATE IF NOT EXISTS preserves all data.
 if [[ ! -f "$BASE_SCHEMA" ]]; then
   printf '[bootstrap] ERROR: missing official base schema: %s\n' "$BASE_SCHEMA" >&2
   exit 1
 fi
-printf '[bootstrap] ensuring OmniRoute v3.8.51 base schema\n'
+printf '[bootstrap] ensuring OmniRoute 3.8.50 base schema\n'
 runuser -u node -- sqlite3 "$DB_PATH" < "$BASE_SCHEMA"
 
 if ! sqlite3 "$DB_PATH" 'PRAGMA integrity_check;' 2>/dev/null | grep -qx 'ok'; then
