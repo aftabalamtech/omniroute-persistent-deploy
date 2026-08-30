@@ -4,19 +4,20 @@ set -Eeuo pipefail
 DATA_DIR="${DATA_DIR:-/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
+log() { printf '[restore] %s\n' "$1"; }
+
+# The database path is the verified application-state marker. Never overwrite
+# an occupied path, even if it is not a regular file.
+if [[ -e "$DB_PATH" ]]; then
+  log 'existing data detected; skipping restore'
+  exit 0
+fi
+
 repo="${GITHUB_BACKUP_REPO:?GITHUB_BACKUP_REPO must be set}"
 token="${GITHUB_TOKEN:?GITHUB_TOKEN must be set}"
 branch="${GITHUB_BACKUP_BRANCH:-main}"
 file="${GITHUB_BACKUP_FILE:-latest.db.zst}"
 url="https://api.github.com/repos/$repo/contents/$file?ref=$branch"
-
-log() { printf '[restore] %s\n' "$1"; }
-
-# The database is the verified application-state marker. Never overwrite it.
-if [[ -f "$DB_PATH" ]]; then
-  log 'existing data detected; skipping restore'
-  exit 0
-fi
 
 log 'empty data directory detected'
 tmpdir="$(mktemp -d /tmp/omniroute-restore.XXXXXX)"

@@ -3,7 +3,7 @@ FROM diegosouzapw/omniroute:3.8.50
 USER root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates curl git jq sqlite3 zstd \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl git jq sqlite3 util-linux zstd \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/backup /app/data /app/runtime
 

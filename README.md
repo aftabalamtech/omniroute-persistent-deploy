@@ -13,9 +13,9 @@ The upstream release documents `${DATA_DIR}/storage.sqlite` as the primary runti
 | SQLite Online Backup API | Creates a consistent snapshot while OmniRoute is running |
 | zstd | Fast, low-resource compression of the snapshot |
 | Private GitHub repository | Stores only `latest.db.zst` as the disaster-recovery copy |
-| Startup wrapper | Restores only when `storage.sqlite` is genuinely missing, then starts the official command |
+| Startup wrapper | Restores only when `storage.sqlite` is genuinely missing, then starts the official command as the upstream non-root `node` user |
 
-The Railway Volume and GitHub repository are intentionally independent. Normal operation uses the Volume. GitHub is used for scheduled backups, pre-update backups, and restoration of an empty new Volume.
+The Railway Volume and GitHub repository are intentionally independent. Normal operation uses the Volume. GitHub is used for scheduled backups, pre-update backups, and restoration of an empty new Volume. The wrapper performs the required first-attach ownership repair as root, then invokes the upstream `/app/check-permissions.sh` and official command as user `node`, matching the pinned image’s runtime contract.
 
 ## Create the repositories
 

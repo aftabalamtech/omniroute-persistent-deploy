@@ -8,7 +8,7 @@ mkdir -p "$DATA_DIR" /app/runtime
 # the application directory, never the whole container filesystem.
 chown -R node:node "$DATA_DIR" 2>/dev/null || true
 
-if [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" && ! -f "$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}" ]]; then
+if [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" && ! -e "$DATA_DIR/${OMNIROUTE_DB_FILENAME:-storage.sqlite}" ]]; then
   if [[ -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
     set +e
     /app/backup/restore.sh
@@ -33,4 +33,4 @@ if [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" && -n "${GITHUB_BACKUP_REPO:-}"
 fi
 
 # Preserve the official image startup command and permission checks.
-exec /app/check-permissions.sh "$@"
+exec runuser -u node -- /app/check-permissions.sh "$@"
