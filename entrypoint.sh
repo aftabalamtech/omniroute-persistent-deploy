@@ -36,7 +36,13 @@ if [[ "$BACKUP_ENABLED" == "true" && -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHU
   backup_pid=$!
   printf '[backup] scheduler process started (interval=%sm)\n' "${BACKUP_INTERVAL_MINUTES:-10}"
 else
-  printf '[backup] scheduler disabled: credentials or GITHUB_BACKUP_ENABLED are not configured\n'
+  if [[ "$BACKUP_ENABLED" != "true" ]]; then
+    printf '[backup] scheduler disabled: GITHUB_BACKUP_ENABLED is not true\n'
+  else
+    [[ -n "${GITHUB_BACKUP_REPO:-}" ]] || printf '[backup] ERROR: GITHUB_BACKUP_REPO is not configured\n'
+    [[ -n "${GITHUB_TOKEN:-}" ]] || printf '[backup] ERROR: GITHUB_TOKEN is not configured\n'
+    printf '[backup] scheduler disabled until backup configuration is complete\n'
+  fi
 fi
 
 app_pid=''
