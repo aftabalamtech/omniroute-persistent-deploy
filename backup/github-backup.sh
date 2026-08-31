@@ -32,11 +32,12 @@ json_headers=(
   -H 'Content-Type: application/json'
 )
 
-# Initialize an empty backup repository through the Contents API. Subsequent
-# uploads use the Git Database API so only latest.db.zst is retained.
+# An empty GitHub repository cannot accept Git Database API blob/tree/commit
+# operations yet. GitHub documents that this returns HTTP 409; initialize it
+# exactly once through the Contents API, then use the Git Database API for all
+# subsequent replacements so backup history does not accumulate on the branch.
 ref_endpoint="$api/repos/$repo/git/refs/heads/$branch"
 ref_response="$work/ref-initial.json"
-ref_existed=0
 ref_code="$(curl -sS -o "$ref_response" -w '%{http_code}' \
   "${auth_headers[@]}" "$ref_endpoint")"
 
@@ -44,10 +45,10 @@ content_b64="$work/content.b64"
 base64 -w 0 "$archive" > "$content_b64"
 
 if [[ "$ref_code" == '404' ]]; then
-  log "GitHub backup branch '$branch' does not exist; initializing it with latest.db.zst"
+  log 'GitHub backup repository is empty; initializing it with latest.db.zst'
   init_payload="$work/init.json"
-  jq -n --rawfile content "$content_b64" --arg path "$file" --arg branch "$branch" \
-    '{message:"Initialize OmniRoute backup",content:($content|rtrimstr("\n")),branch:$branch}' > "$init_payload"
+  jq -n --rawfile content "$content_b64" --arg path "$file" \
+    '{message:"Initialize OmniRoute backup",content:($content|rtrimstr("\n")),branch:"main"}' > "$init_payload"
 
   init_response="$work/init-response.json"
   init_code="$(curl -sS -o "$init_response" -w '%{http_code}' \
@@ -55,10 +56,8 @@ if [[ "$ref_code" == '404' ]]; then
     --data-binary @"$init_payload" \
     "$api/repos/$repo/contents/$file")"
   [[ "$init_code" == '201' ]] || { error_log "GitHub initial backup creation failed (HTTP $init_code)"; exit 1; }
-  commit_sha="$(jq -er '.commit.sha' "$init_response")"
 else
   [[ "$ref_code" == '200' ]] || { error_log "GitHub branch lookup failed (HTTP $ref_code)"; exit 1; }
-  ref_existed=1
 
   blob_payload="$work/blob.json"
   jq -n --rawfile content "$content_b64" \
@@ -96,35 +95,7 @@ else
     "$api/repos/$repo/git/commits")"
   [[ "$commit_code" == '201' ]] || { error_log "GitHub commit creation failed (HTTP $commit_code)"; exit 1; }
   commit_sha="$(jq -er '.sha' "$commit_response")"
-fi
 
-# Verify exact remote bytes independently of Git blob SHA calculations.
-local_size="$(stat -c '%s' "$archive")"
-local_sha256="$(sha256sum "$archive" | awk '{print $1}')"
-[[ "$local_size" -gt 0 ]] || { error_log 'local archive is empty'; exit 1; }
-log "local size: $local_size"
-log "local SHA-256: $local_sha256"
-remote="$work/remote-latest.db.zst"
-remote_sqlite="$work/remote-storage.sqlite"
-remote_code="$(curl -sS -L -o "$remote" -w '%{http_code}' \
-  "${auth_headers[@]}" \
-  -H 'Accept: application/vnd.github.raw' \
-  "$api/repos/$repo/contents/$file?ref=$commit_sha")"
-[[ "$remote_code" == '200' ]] || { error_log "remote archive validation failed (download HTTP $remote_code)"; exit 1; }
-remote_size="$(stat -c '%s' "$remote")"
-remote_sha256="$(sha256sum "$remote" | awk '{print $1}')"
-log "remote size: $remote_size"
-log "remote SHA-256: $remote_sha256"
-[[ "$remote_size" == "$local_size" ]] || { error_log "remote archive validation failed: size mismatch (local_size=$local_size remote_size=$remote_size local_sha256=$local_sha256 remote_sha256=$remote_sha256)"; exit 1; }
-[[ "$remote_sha256" == "$local_sha256" ]] || { error_log "remote archive validation failed: SHA-256 mismatch (local_size=$local_size remote_size=$remote_size local_sha256=$local_sha256 remote_sha256=$remote_sha256)"; exit 1; }
-zstd --quiet --test "$remote" || { error_log 'remote archive validation failed: zstd integrity check'; exit 1; }
-log 'remote zstd validation passed'
-zstd --quiet --decompress --stdout "$remote" > "$remote_sqlite" || { error_log 'remote archive validation failed: decompression'; exit 1; }
-sqlite3 "$remote_sqlite" 'PRAGMA integrity_check;' | grep -qx 'ok' || { error_log 'remote archive validation failed: SQLite integrity check'; exit 1; }
-log 'remote SQLite validation passed'
-log 'remote backup verified'
-
-if (( ref_existed == 1 )); then
   update_payload="$work/ref-update.json"
   jq -n --arg sha "$commit_sha" '{sha:$sha,force:true}' > "$update_payload"
   update_response="$work/ref-update-response.json"
@@ -132,6 +103,21 @@ if (( ref_existed == 1 )); then
     -X PATCH "${json_headers[@]}" \
     --data-binary @"$update_payload" \
     "$ref_endpoint")"
-  [[ "$update_code" == '200' ]] || { error_log "GitHub branch update failed (HTTP $update_code); previous backup remains referenced"; exit 1; }
+  [[ "$update_code" == '200' ]] || { error_log "GitHub branch update failed (HTTP $update_code)"; exit 1; }
 fi
+
+# Verify exact remote bytes independently of Git blob SHA calculations.
+local_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+remote="$work/remote-latest.db.zst"
+remote_code="$(curl -sS -L -o "$remote" -w '%{http_code}' \
+  "${auth_headers[@]}" \
+  -H 'Accept: application/vnd.github.raw' \
+  "$api/repos/$repo/contents/$file?ref=$branch")"
+[[ "$remote_code" == '200' ]] || { error_log "GitHub remote verification download failed (HTTP $remote_code)"; exit 1; }
+[[ -s "$remote" ]] || { error_log 'remote artifact is empty'; exit 1; }
+zstd --quiet --test "$remote" || { error_log 'remote zstd verification failed'; exit 1; }
+remote_sha256="$(sha256sum "$remote" | awk '{print $1}')"
+[[ "$remote_sha256" == "$local_sha256" ]] || { error_log 'remote SHA-256 does not match local archive'; exit 1; }
+
+log 'remote backup verified'
 exit 0

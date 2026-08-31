@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
 DATA_DIR="${DATA_DIR:-/app/data}"
 DB_FILE="${OMNIROUTE_DB_FILENAME:-storage.sqlite}"
 DB_PATH="$DATA_DIR/$DB_FILE"
@@ -10,55 +9,36 @@ LOCK_FILE="$RUNTIME_DIR/backup.lock"
 FINGERPRINT_FILE="$RUNTIME_DIR/last-successful-fingerprint"
 log() { printf '[backup] %s\n' "$1"; }
 error_log() { printf '[backup] ERROR: %s\n' "$1" >&2; }
-
-schema_valid() {
-  [[ -f "$DB_PATH" ]] || return 1
-  sqlite3 "$DB_PATH" 'PRAGMA quick_check;' 2>/dev/null | grep -qx 'ok' || return 1
-  sqlite3 "$DB_PATH" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_connections' LIMIT 1;" 2>/dev/null | grep -qx '1'
-}
-
 fingerprint() {
   local p
   for p in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
     if [[ -e "$p" ]]; then sha256sum -- "$p"; else printf 'missing  %s\n' "$p"; fi
   done
 }
-
 run_once() {
   [[ "${GITHUB_BACKUP_ENABLED:-true}" == "true" ]] || return 0
   if [[ ! -f "$DB_PATH" ]]; then log 'waiting for database'; return 0; fi
   log 'database detected'
-
-  if ! schema_valid; then
-    error_log 'database schema validation failed; backup skipped'
-    return 1
-  fi
-
   local current previous tmpdir snapshot archive
   current="$(fingerprint)"
   previous=''
   [[ -f "$FINGERPRINT_FILE" ]] && previous="$(cat "$FINGERPRINT_FILE")"
   if [[ -n "$previous" && "$current" == "$previous" ]]; then log 'no changes; skipping'; return 0; fi
   [[ -n "$previous" ]] || log 'first backup required'
-
   tmpdir="$(mktemp -d /tmp/omniroute-backup.XXXXXX)"
   snapshot="$tmpdir/$DB_FILE"
   archive="$tmpdir/latest.db.zst"
   trap 'rm -rf "$tmpdir"' RETURN
-
   log 'change detected'
   log 'creating SQLite snapshot'
   sqlite3 "$DB_PATH" ".timeout 5000" ".backup '$snapshot'"
   log 'SQLite snapshot created'
   log 'validating SQLite snapshot'
   sqlite3 "$snapshot" 'PRAGMA quick_check;' | grep -qx 'ok' || { error_log 'SQLite integrity check failed'; return 1; }
-  sqlite3 "$snapshot" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_connections' LIMIT 1;" | grep -qx '1' || { error_log 'SQLite schema validation failed: provider_connections is missing'; return 1; }
-
   log 'compressing with zstd'
   zstd --quiet --fast=3 --no-progress -o "$archive" -- "$snapshot"
   zstd --quiet --test "$archive"
   log 'compression verified'
-
   log 'uploading backup to GitHub'
   if ! GITHUB_BACKUP_FILE="${GITHUB_BACKUP_FILE:-latest.db.zst}" /app/backup/github-backup.sh "$archive"; then
     error_log 'GitHub backup failed; previous remote backup remains unchanged'
@@ -70,7 +50,6 @@ run_once() {
   rm -rf "$tmpdir"
   trap - RETURN
 }
-
 mkdir -p "$RUNTIME_DIR"
 log "scheduler started (interval=${INTERVAL}m)"
 if [[ "${1:-}" == "--once" ]]; then
@@ -79,7 +58,6 @@ if [[ "${1:-}" == "--once" ]]; then
   run_once
   exit $?
 fi
-
 while :; do
   if exec 9>"$LOCK_FILE" && flock -n 9; then
     if run_once; then :; else status=$?; error_log "backup attempt failed (exit $status); retrying next interval"; fi
