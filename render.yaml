@@ -27,7 +27,7 @@ services:
       - key: GITHUB_BACKUP_FILE
         value: latest.db.zst
       - key: BACKUP_INTERVAL_MINUTES
-        value: "5"
+        value: "10"
       - key: MAX_BACKUP_BYTES
         value: "94371840"
       - key: JWT_SECRET

@@ -86,10 +86,21 @@ if (( ready == 0 )); then
 fi
 printf '[bootstrap] OmniRoute ready\n'
 
+# Render detects the real listening socket, not the advertised Docker EXPOSE port.
+# Verify the IPv4 wildcard listener after the health endpoint is live so a misleading
+# startup message cannot mask a port mismatch.
+port_hex="$(printf '%04X' "$PORT")"
+if awk -v port="$port_hex" '$2 == "00000000:" port && $4 == "0A" { found = 1 } END { exit(found ? 0 : 1) }' /proc/net/tcp; then
+  printf '[port] verified HTTP listener: 0.0.0.0:%s\n' "$PORT"
+else
+  printf '[port] ERROR: expected HTTP listener 0.0.0.0:%s was not found\n' "$PORT" >&2
+  shutdown
+  exit 1
+fi
+
 if [[ "$BACKUP_ENABLED" == "true" && -n "${GITHUB_BACKUP_REPO:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
   /app/backup/backup.sh &
   backup_pid=$!
-  printf '[backup] scheduler started (interval=%sm)\n' "${BACKUP_INTERVAL_MINUTES:-10}"
 else
   printf '[backup] scheduler not started: configuration incomplete or disabled\n'
 fi
